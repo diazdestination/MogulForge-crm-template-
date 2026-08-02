@@ -10,15 +10,15 @@ A full-stack roofing CRM: pipeline board, lead management, scheduling, automated
 
 | File | What to change |
 |---|---|
-| `artifacts/command-center/src/lib/client.config.ts` | Business name, short name, app title, primary hex color, phone, timezone |
+| `artifacts/command-center/src/lib/client.config.ts` | Business name, short name, app title, primary color (hex + HSL), phone, timezone |
 | `artifacts/api-server/src/lib/client.config.ts` | Default org name, org slug, fallback business name, AI assistant name, greeting |
 
 After editing those files:
 
 1. **Logo** — replace `artifacts/command-center/public/favicon.ico` and any logo assets with the new client's logo.
-2. **Primary color** — update `--color-primary` in `artifacts/command-center/src/index.css` to match `primaryColor` in `client.config.ts` (search for `hsl(` to find the right line).
-3. **Page title** — update `<title>` in `artifacts/command-center/index.html`.
-4. **Domain/origin** — set the `DOMAIN` environment variable (used by the API server to build portal links and OG cards).
+2. **Domain/origin** — set the `DOMAIN` environment variable (used by the API server to build portal links and OG cards).
+
+> **No manual edits to `index.html` or `index.css` are needed.** The browser tab title, Open Graph meta tags, and the `--primary` CSS variable are all injected automatically from `client.config.ts` at build time via the `clientBrandingPlugin` in `vite.config.ts`.
 
 ---
 

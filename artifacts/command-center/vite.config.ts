@@ -1,9 +1,33 @@
 import path from 'path';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+import { CLIENT } from './src/lib/client.config';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
+
+/**
+ * Injects client branding into index.html at build/serve time so that
+ * index.html and index.css never need hand-editing for a new client.
+ *
+ * Replaces every %CLIENT_APP_NAME% placeholder and prepends a <style>
+ * block that sets the --primary CSS variable from client.config.ts.
+ */
+function clientBrandingPlugin(): Plugin {
+  return {
+    name: 'client-branding',
+    transformIndexHtml(html: string) {
+      const branded = html.replaceAll('%CLIENT_APP_NAME%', CLIENT.appName);
+      const styleBlock = `
+  <style>
+    /* Injected from src/lib/client.config.ts — do not edit here */
+    :root { --primary: ${CLIENT.primaryHsl}; }
+    .dark { --primary: ${CLIENT.primaryHslDark}; }
+  </style>`;
+      return branded.replace('</head>', `${styleBlock}\n  </head>`);
+    },
+  };
+}
 
 const rawPort = process.env.PORT;
 
@@ -30,6 +54,7 @@ if (!basePath) {
 export default defineConfig({
   base: basePath,
   plugins: [
+    clientBrandingPlugin(),
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
