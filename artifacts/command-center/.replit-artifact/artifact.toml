@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/crm/"
+title = "Painless Command Center"
+description = "Internal CRM for the Painless Roofing sales team: sign-in, leads pipeline (Kanban + table), contacts, properties, tasks, appointments, and per-lead activity timelines with AI scoring, all backed by the secured versioned API."
+version = "1.0.0"
+id = "artifacts/command-center"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/crm/" ]
+localPort = 23748
+
+[services.development]
+run = "pnpm --filter @workspace/command-center run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/command-center", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/command-center/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23748"
+BASE_PATH = "/crm/"
