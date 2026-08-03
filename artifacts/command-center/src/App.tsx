@@ -12,6 +12,7 @@ import { Loader2 } from 'lucide-react';
 import Dashboard from '@/pages/dashboard';
 import Assistant from '@/pages/assistant';
 import Pipeline from '@/pages/pipeline';
+import Insights from '@/pages/insights';
 import LeadDetail from '@/pages/lead-detail';
 import Contacts from '@/pages/contacts';
 import Properties from '@/pages/properties';
@@ -21,6 +22,8 @@ import Tasks from '@/pages/tasks';
 import Appointments from '@/pages/appointments';
 import AuditLog from '@/pages/audit';
 import Settings from '@/pages/settings';
+import Forms from '@/pages/forms';
+import Reactivation from '@/pages/reactivation';
 
 const queryClient = new QueryClient();
 
@@ -77,6 +80,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/assistant" component={Assistant} />
         <Route path="/pipeline" component={Pipeline} />
+        <Route path="/insights" component={Insights} />
         <Route path="/leads/:id" component={LeadDetail} />
         <Route path="/contacts" component={Contacts} />
         <Route path="/properties" component={Properties} />
@@ -86,6 +90,8 @@ function Router() {
         <Route path="/appointments" component={Appointments} />
         <Route path="/audit" component={AuditLog} />
         <Route path="/settings" component={Settings} />
+        <Route path="/forms" component={Forms} />
+        <Route path="/reactivation" component={Reactivation} />
           <Route component={NotFound} />
         </Switch>
       </Shell>

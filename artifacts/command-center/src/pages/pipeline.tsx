@@ -52,6 +52,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { DuplicateMergeDialog } from '@/components/duplicate-merge-dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { LeadContactActions } from '@/components/lead-contact-actions';
+import { TodayActionsPanel } from '@/components/today-actions';
 
 const PIPELINE_STAGES = [
   LeadStatus.new,
@@ -565,6 +566,8 @@ export default function Pipeline() {
           </div>
         </div>
       </header>
+
+      <TodayActionsPanel />
 
       {/* Bulk action bar */}
       {canEdit && view === 'table' && selected.size > 0 && (

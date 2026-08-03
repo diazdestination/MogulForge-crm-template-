@@ -25,6 +25,8 @@ import Tasks from '@/pages/tasks';
 import Appointments from '@/pages/appointments';
 import AuditLog from '@/pages/audit';
 import Settings from '@/pages/settings';
+import FormsPage from '@/pages/forms';
+import Reactivation from '@/pages/reactivation';
 import LeadDetail from '@/pages/lead-detail';
 import { sampleContact, sampleLead } from '@/test/mock-api';
 import { mockApi } from '@/test/mock-api';
@@ -146,6 +148,11 @@ describe('every icon-only control keeps an accessible name', () => {
       openModal: /schedule/i, modalHeading: /appointment/i,
     },
     { name: 'audit', path: '/audit', Page: AuditLog, mayBeEmpty: true },
+    {
+      name: 'forms', path: '/forms', Page: FormsPage,
+      openModal: /new form/i, modalHeading: 'New form',
+    },
+    { name: 'reactivation', path: '/reactivation', Page: Reactivation },
   ];
 
   const json = (body: unknown) =>
@@ -167,6 +174,43 @@ describe('every icon-only control keeps an accessible name', () => {
       }
       expectAllControlsNamed();
     }
+  });
+
+  it("pipeline Today's Actions rows, including the expanded draft panel", async () => {
+    const queueAction = {
+      leadId: 'lead-1',
+      actionType: 'send_message',
+      title: 'Send a follow-up',
+      reasons: ['No touch in 5 days'],
+      priority: 1,
+      channel: 'email',
+      leadSummary: 'Roof replacement',
+      leadStatus: 'contacted',
+      contactName: 'Dana Homeowner',
+      score: 80,
+    };
+    mockApi('owner', {
+      handler: (_method, path) => {
+        if (path.endsWith('/api/v1/next-actions')) return json([queueAction]);
+        if (path.endsWith('/next-action')) {
+          return json({
+            ...queueAction,
+            draft: { provider: 'openai', subject: 'Checking in', body: 'Hi Dana — following up.' },
+          });
+        }
+        return undefined;
+      },
+    });
+    renderAt('/pipeline', <Pipeline />);
+    await settle();
+    // Inline quick actions on the queue row are icon-only — must be named.
+    await screen.findByRole('button', { name: /snooze suggestion for dana homeowner/i });
+    screen.getByRole('button', { name: /dismiss suggestion for dana homeowner/i });
+    expectAllControlsNamed();
+    // Expand the draft panel and check the composer controls too.
+    fireEvent.click(screen.getByRole('button', { name: /show draft for dana homeowner/i }));
+    await screen.findByRole('textbox', { name: 'Draft message' });
+    expectAllControlsNamed();
   });
 
   it('settings page, across every tab', async () => {

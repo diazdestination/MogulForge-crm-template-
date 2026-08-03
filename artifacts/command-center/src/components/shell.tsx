@@ -10,6 +10,7 @@ import {
   Home,
   CheckSquare,
   Calendar,
+  ClipboardList,
   Shield,
   FileText,
   HardHat,
@@ -18,7 +19,9 @@ import {
   Settings2,
   Menu,
   X,
-  Sparkles
+  Sparkles,
+  TrendingUp,
+  RotateCcw
 } from 'lucide-react';
 import { canManageSettings, canViewAuditLog } from '@/lib/permissions';
 import { CLIENT } from '@/lib/client.config';
@@ -36,12 +39,15 @@ const navItems: NavItem[] = [
   { title: 'Dashboard', href: '/', icon: LayoutDashboard },
   { title: 'Assistant', href: '/assistant', icon: Sparkles },
   { title: 'Pipeline', href: '/pipeline', icon: Trello },
+  { title: 'Insights', href: '/insights', icon: TrendingUp },
   { title: 'Contacts', href: '/contacts', icon: Users },
   { title: 'Properties', href: '/properties', icon: Home },
   { title: 'Estimates', href: '/estimates', icon: FileText },
   { title: 'Projects', href: '/projects', icon: HardHat },
   { title: 'Tasks', href: '/tasks', icon: CheckSquare },
   { title: 'Appointments', href: '/appointments', icon: Calendar },
+  { title: 'Win-back', href: '/reactivation', icon: RotateCcw },
+  { title: 'Forms', href: '/forms', icon: ClipboardList, requireSettings: true },
   { title: 'Audit Log', href: '/audit', icon: Shield, requireAudit: true },
   { title: 'Settings', href: '/settings', icon: Settings2, requireSettings: true },
 ];

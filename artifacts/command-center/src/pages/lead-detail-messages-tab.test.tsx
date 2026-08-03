@@ -175,11 +175,17 @@ describe('lead detail – Messages tab', () => {
   it('does not show the Homeowner/Team chat labels while on the Timeline tab', async () => {
     setup('sales_rep');
 
-    // Wait for the page to load (Timeline tab is active by default).
+    // Wait for the page AND the timeline activities to load (Timeline tab is
+    // active by default). Note the timeline itself legitimately shows a
+    // "Homeowner" badge on portal messages, so we assert on the MessageThread
+    // composer instead of the label text.
     await screen.findByText('Hail damage roof');
+    await screen.findByText('When will the crew arrive?');
 
-    // The MessageThread (with "Homeowner" / "Team" chat labels) is not yet mounted.
-    expect(screen.queryByText(/^homeowner$/i)).toBeNull();
+    // The MessageThread (with its reply composer) is not yet mounted.
+    expect(
+      screen.queryByPlaceholderText(/reply to homeowner/i),
+    ).toBeNull();
     expect(screen.queryByText(/^team$/i)).toBeNull();
   });
 

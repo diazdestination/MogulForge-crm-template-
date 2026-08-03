@@ -28,6 +28,13 @@ import {
   useRequestLeadPhotoUploadUrl,
   useAttachLeadPhotos,
   useDeleteLeadPhoto,
+  useGetLeadEnrollment,
+  useGetLeadBehavior,
+  getGetLeadBehaviorQueryKey,
+  getGetLeadEnrollmentQueryKey,
+  usePauseEnrollment,
+  useResumeEnrollment,
+  useSkipEnrollmentStep,
 } from '@workspace/api-client-react';
 import { Link } from 'wouter';
 import { Loader2, Bot, Calendar, Phone, Activity as ActivityIcon, CheckCircle2, User, Home, Zap, MessageSquare, MessageSquareText, Copy, FileText, HardHat, Plus, Pencil, ImageOff, Globe, Camera, X as XIcon, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
@@ -36,6 +43,7 @@ import { useToast } from '@/hooks/use-toast';
 import { PhotoLightbox } from '@/components/photo-lightbox';
 import { extractPhotoPaths, flattenPhotoPaths, photoUrl } from '@/lib/photos';
 import { LeadContactActions } from '@/components/lead-contact-actions';
+import { NextBestActionCard } from '@/components/next-best-action-card';
 import { format } from 'date-fns';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -46,6 +54,7 @@ export default function LeadDetail() {
   const { data: property } = useGetProperty(lead?.propertyId!, { query: { enabled: !!lead?.propertyId, queryKey: getGetPropertyQueryKey(lead?.propertyId!) } });
   
   const { data: duplicateGroups } = useListDuplicateLeads();
+  const { data: me } = useGetMe();
   const queryClient = useQueryClient();
   const updateLead = useUpdateLead();
   const { toast } = useToast();
@@ -155,6 +164,8 @@ export default function LeadDetail() {
 
         {/* Contact & Property Info */}
         <div className="p-4 md:p-6 space-y-6">
+          <NextBestActionCard leadId={lead.id} canWrite={canWrite(me?.role)} />
+
           <section>
             <h3 className="flex items-center gap-2 text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
               <User className="w-3.5 h-3.5" /> Contact
@@ -211,7 +222,11 @@ export default function LeadDetail() {
 
           <ProjectPanel leadId={lead.id} />
 
+          <EnrollmentPanel leadId={lead.id} canWrite={canWrite(me?.role)} />
+
           <ConciergePanel leadId={lead.id} />
+
+          <BehaviorPanel leadId={lead.id} />
 
           <section>
             <h3 className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
@@ -426,6 +441,65 @@ function PhotoUploadButton({ leadId }: { leadId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Marketing attribution + linked website behavior. Attribution comes from
+ * the lead's touch data; behavior only exists when the visitor identified
+ * themselves (anonymous visitors are never linked).
+ */
+function BehaviorPanel({ leadId }: { leadId: string }) {
+  const { data } = useGetLeadBehavior(leadId, {
+    query: { queryKey: getGetLeadBehaviorQueryKey(leadId) },
+  });
+  if (!data || !data.attribution || !data.behavior) return null;
+  const a = data.attribution;
+  const b = data.behavior;
+  const attributionRows = [
+    { label: 'Campaign', value: a.campaign },
+    { label: 'Landing page', value: a.landingPage },
+    { label: 'Referrer', value: a.referrer },
+    { label: 'Latest source', value: a.latestSource },
+    { label: 'Created via', value: a.creationMethod },
+  ].filter(r => r.value);
+  if (attributionRows.length === 0 && !data.linked) return null;
+
+  return (
+    <section data-testid="behavior-panel">
+      <h3 className="flex items-center gap-2 text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
+        <Globe className="w-3.5 h-3.5" /> Visitor Intelligence
+      </h3>
+      <div className="bg-card border border-border/50 rounded-xl shadow-sm overflow-hidden text-sm">
+        {attributionRows.map((r, i) => (
+          <div key={r.label} className={`flex justify-between items-center gap-3 border-b border-border/50 p-3 ${i % 2 === 1 ? 'bg-muted/10' : ''}`}>
+            <span className="text-muted-foreground font-medium shrink-0">{r.label}</span>
+            <span className="font-bold truncate capitalize" title={r.value ?? undefined}>{r.value}</span>
+          </div>
+        ))}
+        {data.linked ? (
+          b.highlights.length > 0 ? (
+            <div className="p-3 space-y-2" data-testid="behavior-highlights">
+              {b.highlights.map((h, i) => (
+                <div key={i} className="flex gap-2 items-start font-medium text-foreground">
+                  <ActivityIcon className="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
+                  <span>{h}</span>
+                </div>
+              ))}
+              {b.topPages.length > 0 && (
+                <div className="pt-1 text-xs text-muted-foreground">
+                  Top pages: {b.topPages.map(p => `${p.path} (${p.views})`).join(', ')}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground italic">Visitor linked — no website activity recorded yet.</div>
+          )
+        ) : (
+          <div className="p-3 text-xs text-muted-foreground italic">No website visitor linked to this lead.</div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1228,6 +1302,93 @@ function ProjectPanel({ leadId }: { leadId: string }) {
       ) : (
         <div className="text-xs font-medium text-muted-foreground italic bg-muted/10 border border-dashed border-border rounded-xl p-4 text-center">No projects yet.</div>
       )}
+    </section>
+  );
+}
+
+function EnrollmentPanel({ leadId, canWrite: writable }: { leadId: string; canWrite: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data } = useGetLeadEnrollment(leadId, {
+    query: { enabled: !!leadId, queryKey: getGetLeadEnrollmentQueryKey(leadId) },
+  });
+  const pauseEnrollment = usePauseEnrollment();
+  const resumeEnrollment = useResumeEnrollment();
+  const skipStep = useSkipEnrollmentStep();
+
+  const enrollment = data?.enrollment;
+  if (!enrollment) return null;
+
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: getGetLeadEnrollmentQueryKey(leadId) });
+  const act = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      await refresh();
+    } catch {
+      toast({ title: "Couldn't update the outreach sequence. Please try again.", variant: 'destructive' });
+    }
+  };
+
+  const live = enrollment.status === 'active' || enrollment.status === 'paused';
+  const statusStyle =
+    enrollment.status === 'active'
+      ? 'bg-green-500/10 text-green-700 border-green-500/20 dark:text-green-400'
+      : enrollment.status === 'paused'
+        ? 'bg-amber-500/10 text-amber-700 border-amber-500/20 dark:text-amber-400'
+        : 'bg-muted text-muted-foreground border-border';
+  const sentCount = enrollment.history?.filter((h) => h.kind === 'sent').length ?? 0;
+
+  return (
+    <section>
+      <h3 className="flex items-center gap-2 text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
+        <Zap className="w-3.5 h-3.5" /> Closer Engine
+      </h3>
+      <div className="bg-card border border-border/50 rounded-xl p-3 md:p-4 text-sm shadow-sm space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="min-w-0">
+            <div className="font-semibold text-foreground truncate">{enrollment.playbookName ?? 'Outreach playbook'}</div>
+            <div className="text-xs text-muted-foreground">
+              {sentCount} of {enrollment.totalSteps ?? '?'} touches sent
+              {enrollment.status === 'active' && enrollment.nextRunAt
+                ? ` • next ${format(new Date(enrollment.nextRunAt), 'MMM d • h:mm a')}`
+                : ''}
+              {enrollment.status !== 'active' && enrollment.pauseReason ? ` • ${enrollment.pauseReason}` : ''}
+            </div>
+          </div>
+          <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest border ${statusStyle}`}>
+            {enrollment.status}
+          </span>
+        </div>
+        {writable && live && (
+          <div className="flex gap-2 flex-wrap">
+            {enrollment.status === 'active' ? (
+              <button
+                type="button"
+                onClick={() => act(() => pauseEnrollment.mutateAsync({ id: enrollment.id }))}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                Pause outreach
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => act(() => resumeEnrollment.mutateAsync({ id: enrollment.id }))}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+              >
+                Resume outreach
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => act(() => skipStep.mutateAsync({ id: enrollment.id }))}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-border hover:bg-muted transition-colors"
+            >
+              Skip next touch
+            </button>
+          </div>
+        )}
+      </div>
     </section>
   );
 }

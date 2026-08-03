@@ -110,6 +110,48 @@ export function mockApi(role: string, options: MockApiOptions = {}) {
     if (path.endsWith('/api/v1/appointments')) return json([sampleAppointment]);
     if (path.endsWith('/api/v1/leads')) return json([sampleLead]);
     if (path.endsWith('/api/v1/saved-filters')) return json([sampleSavedFilter]);
+    if (path.endsWith('/behavior')) {
+      // Visitor-intelligence panel: default to "no visitor linked" so it
+      // stays quiet in unrelated page tests. Override via options.handler.
+      return json({
+        linked: false,
+        attribution: {
+          source: 'website',
+          latestSource: null,
+          campaign: null,
+          landingPage: null,
+          referrer: null,
+          creationMethod: null,
+          firstTouch: null,
+          lastTouch: null,
+        },
+        behavior: {
+          pageViews: 0,
+          sessions: 0,
+          activeDays: 0,
+          firstSeenAt: null,
+          lastSeenAt: null,
+          topPages: [],
+          highIntentPages: [],
+          toolsStarted: [],
+          abandonedForms: 0,
+          highlights: [],
+        },
+      });
+    }
+    if (path.endsWith('/next-action')) {
+      // Next-best-action copilot: default to "nothing to do" so the card
+      // stays out of unrelated page tests. Override via options.handler.
+      return json({
+        leadId: 'lead-1',
+        actionType: 'none',
+        title: 'No action needed',
+        reasons: [],
+        priority: 0,
+        leadStatus: 'won',
+        score: 0,
+      });
+    }
     // users, tags, duplicates, saved filters, anything else list-shaped
     return json([]);
   });
