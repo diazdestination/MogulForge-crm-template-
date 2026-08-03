@@ -14678,7 +14678,7 @@ var init_settings = __esm({
       ].join("\n")
     };
     DEFAULT_SENDING_HOURS = {
-      quietHoursEnabled: false,
+      quietHoursEnabled: true,
       timezone: "America/New_York",
       startHour: 8,
       endHour: 20,
@@ -44705,237 +44705,6 @@ var init_audit2 = __esm({
   }
 });
 
-// src/services/playbook-learning.ts
-function stepVariants(step) {
-  const base = {
-    key: "default",
-    prompt: step.prompt,
-    subject: step.subject
-  };
-  const extras = (step.variants ?? []).map((v) => ({
-    key: v.key,
-    prompt: v.prompt,
-    subject: v.subject ?? step.subject
-  }));
-  return [base, ...extras];
-}
-async function variantStats(organizationId, playbookId, stepIndex) {
-  const rows = await db.select({
-    key: playbookTouchesTable.variantKey,
-    sent: sql`count(*)::int`,
-    replied: sql`count(${playbookTouchesTable.repliedAt})::int`,
-    booked: sql`count(${playbookTouchesTable.bookedAt})::int`
-  }).from(playbookTouchesTable).where(
-    and(
-      eq(playbookTouchesTable.organizationId, organizationId),
-      eq(playbookTouchesTable.playbookId, playbookId),
-      eq(playbookTouchesTable.stepIndex, stepIndex)
-    )
-  ).groupBy(playbookTouchesTable.variantKey);
-  return new Map(rows.map((r) => [r.key, r]));
-}
-function sampleBeta(successes, failures) {
-  const a = successes + 1;
-  const b = failures + 1;
-  const mean = a / (a + b);
-  const variance = a * b / ((a + b) ** 2 * (a + b + 1));
-  const u1 = Math.random() || 1e-9;
-  const u2 = Math.random();
-  const z2 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  return Math.min(1, Math.max(0, mean + z2 * Math.sqrt(variance)));
-}
-async function logDecision(entry) {
-  await db.insert(playbookDecisionsTable).values(entry);
-}
-async function chooseVariant(organizationId, playbook, stepIndex, step) {
-  const variants = stepVariants(step);
-  if (variants.length === 1) return variants[0];
-  if (step.pinnedVariant) {
-    const pinned = variants.find((v) => v.key === step.pinnedVariant);
-    if (pinned) return pinned;
-  }
-  const stats = await variantStats(organizationId, playbook.id, stepIndex);
-  const get = (key) => stats.get(key) ?? { key, sent: 0, replied: 0, booked: 0 };
-  const underSampled = variants.filter(
-    (v) => get(v.key).sent < MIN_VARIANT_SAMPLE
-  );
-  if (underSampled.length > 0) {
-    underSampled.sort((a, b) => get(a.key).sent - get(b.key).sent);
-    return underSampled[0];
-  }
-  let best = variants[0];
-  let bestScore = -1;
-  const scores = {};
-  for (const v of variants) {
-    const s = get(v.key);
-    const successes = s.replied + s.booked;
-    const score = sampleBeta(successes, Math.max(0, s.sent - successes));
-    scores[v.key] = Number(score.toFixed(4));
-    if (score > bestScore) {
-      bestScore = score;
-      best = v;
-    }
-  }
-  const bestStats = get(best.key);
-  const rate = (s) => s.sent > 0 ? (s.replied + s.booked) / s.sent : 0;
-  const others = variants.filter((v) => v.key !== best.key).map((v) => get(v.key));
-  const bestOtherRate = Math.max(...others.map(rate), 0);
-  const lift = bestOtherRate > 0 ? (rate(bestStats) / bestOtherRate).toFixed(1) : "\u221E";
-  await logDecision({
-    organizationId,
-    playbookId: playbook.id,
-    kind: "variant_allocation",
-    stepIndex,
-    decision: {
-      chosen: best.key,
-      scores,
-      samples: Object.fromEntries(
-        variants.map((v) => [v.key, get(v.key)])
-      )
-    },
-    explanation: `Step ${stepIndex + 1}: chose variant "${best.key}" \u2014 ${(rate(bestStats) * 100).toFixed(0)}% reply+booking rate over ${bestStats.sent} sends (${lift}x vs next best).`
-  });
-  return best;
-}
-async function adjustSendTime(organizationId, runAt) {
-  const rows = await db.select({
-    hour: playbookTouchesTable.sentHourUtc,
-    sent: sql`count(*)::int`,
-    replied: sql`count(${playbookTouchesTable.repliedAt})::int`
-  }).from(playbookTouchesTable).where(eq(playbookTouchesTable.organizationId, organizationId)).groupBy(playbookTouchesTable.sentHourUtc);
-  const totalReplies = rows.reduce((n, r) => n + r.replied, 0);
-  if (totalReplies < MIN_WINDOW_SAMPLE) return { runAt, adjusted: false };
-  const eligible = rows.filter((r) => r.sent >= MIN_VARIANT_SAMPLE);
-  if (eligible.length < 2) return { runAt, adjusted: false };
-  const best = eligible.reduce(
-    (a, b) => b.replied / b.sent > a.replied / a.sent ? b : a
-  );
-  const scheduledHour = runAt.getUTCHours();
-  if (best.hour === scheduledHour) return { runAt, adjusted: false };
-  const shift = (best.hour - scheduledHour + 24) % 24;
-  if (shift === 0 || shift > MAX_WINDOW_SHIFT_HOURS) {
-    return { runAt, adjusted: false };
-  }
-  const adjusted = new Date(runAt.getTime() + shift * 36e5);
-  await logDecision({
-    organizationId,
-    kind: "send_window",
-    decision: {
-      fromHourUtc: scheduledHour,
-      toHourUtc: best.hour,
-      shiftHours: shift,
-      bestHourReplyRate: Number((best.replied / best.sent).toFixed(3))
-    },
-    explanation: `Shifted a follow-up from ${scheduledHour}:00 to ${best.hour}:00 UTC \u2014 that window replies at ${(best.replied / best.sent * 100).toFixed(0)}% over ${best.sent} sends.`
-  });
-  return { runAt: adjusted, adjusted: true };
-}
-async function recordTouch(entry) {
-  const now = /* @__PURE__ */ new Date();
-  await db.insert(playbookTouchesTable).values({
-    ...entry,
-    sentHourUtc: now.getUTCHours(),
-    sentAt: now
-  });
-}
-async function recordLeadOutcome(organizationId, leadId, outcome) {
-  try {
-    const scope = and(
-      eq(playbookTouchesTable.organizationId, organizationId),
-      eq(playbookTouchesTable.leadId, leadId)
-    );
-    const now = /* @__PURE__ */ new Date();
-    if (outcome === "replied") {
-      await db.update(playbookTouchesTable).set({ repliedAt: now }).where(and(scope, isNull(playbookTouchesTable.repliedAt)));
-    } else if (outcome === "booked") {
-      await db.update(playbookTouchesTable).set({ bookedAt: now }).where(and(scope, isNull(playbookTouchesTable.bookedAt)));
-    } else {
-      await db.update(playbookTouchesTable).set({ finalOutcome: outcome, finalOutcomeAt: now }).where(and(scope, isNull(playbookTouchesTable.finalOutcome)));
-    }
-  } catch (err) {
-    console.error("[playbook-learning] outcome attribution failed:", err);
-  }
-}
-async function getConversionInsights(organizationId) {
-  const funnel = await db.select({
-    playbookId: playbookTouchesTable.playbookId,
-    playbookName: playbooksTable.name,
-    stepIndex: playbookTouchesTable.stepIndex,
-    variantKey: playbookTouchesTable.variantKey,
-    channel: playbookTouchesTable.channel,
-    sent: sql`count(*)::int`,
-    replied: sql`count(${playbookTouchesTable.repliedAt})::int`,
-    booked: sql`count(${playbookTouchesTable.bookedAt})::int`,
-    won: sql`count(*) filter (where ${playbookTouchesTable.finalOutcome} = 'won')::int`,
-    lost: sql`count(*) filter (where ${playbookTouchesTable.finalOutcome} = 'lost')::int`
-  }).from(playbookTouchesTable).innerJoin(
-    playbooksTable,
-    eq(playbookTouchesTable.playbookId, playbooksTable.id)
-  ).where(eq(playbookTouchesTable.organizationId, organizationId)).groupBy(
-    playbookTouchesTable.playbookId,
-    playbooksTable.name,
-    playbookTouchesTable.stepIndex,
-    playbookTouchesTable.variantKey,
-    playbookTouchesTable.channel
-  ).orderBy(
-    playbooksTable.name,
-    playbookTouchesTable.stepIndex,
-    playbookTouchesTable.variantKey
-  );
-  const decisionRows = await db.select({
-    kind: playbookDecisionsTable.kind,
-    stepIndex: playbookDecisionsTable.stepIndex,
-    explanation: playbookDecisionsTable.explanation,
-    createdAt: playbookDecisionsTable.createdAt
-  }).from(playbookDecisionsTable).where(eq(playbookDecisionsTable.organizationId, organizationId)).orderBy(desc(playbookDecisionsTable.createdAt)).limit(50);
-  const totalSent = funnel.reduce((n, r) => n + r.sent, 0);
-  const totalReplied = funnel.reduce((n, r) => n + r.replied, 0);
-  const baselineReplyRate = totalSent > 0 ? totalReplied / totalSent : 0;
-  const groups = /* @__PURE__ */ new Map();
-  for (const row of funnel) {
-    const key = `${row.playbookId}:${row.stepIndex}`;
-    const list = groups.get(key) ?? [];
-    list.push(row);
-    groups.set(key, list);
-  }
-  let engineNumerator = 0;
-  let engineDenominator = 0;
-  for (const rows of groups.values()) {
-    const groupSent = rows.reduce((n, r) => n + r.sent, 0);
-    const qualified = rows.filter((r) => r.sent >= MIN_VARIANT_SAMPLE);
-    const pool2 = qualified.length > 0 ? qualified : rows;
-    const best = pool2.reduce(
-      (a, b) => b.replied / b.sent > a.replied / a.sent ? b : a
-    );
-    engineNumerator += best.replied / best.sent * groupSent;
-    engineDenominator += groupSent;
-  }
-  const engineReplyRate = engineDenominator > 0 ? engineNumerator / engineDenominator : 0;
-  const liftPercent = baselineReplyRate > 0 ? Math.round((engineReplyRate - baselineReplyRate) / baselineReplyRate * 100) : null;
-  return {
-    funnel,
-    decisions: decisionRows.map((d) => ({
-      ...d,
-      createdAt: d.createdAt.toISOString()
-    })),
-    baselineReplyRate: Number(baselineReplyRate.toFixed(4)),
-    engineReplyRate: Number(engineReplyRate.toFixed(4)),
-    liftPercent,
-    totalTouches: totalSent
-  };
-}
-var MIN_VARIANT_SAMPLE, MIN_WINDOW_SAMPLE, MAX_WINDOW_SHIFT_HOURS;
-var init_playbook_learning2 = __esm({
-  "src/services/playbook-learning.ts"() {
-    "use strict";
-    init_src();
-    init_drizzle_orm();
-    MIN_VARIANT_SAMPLE = 10;
-    MIN_WINDOW_SAMPLE = 20;
-    MAX_WINDOW_SHIFT_HOURS = 12;
-  }
-});
-
 // ../../node_modules/.pnpm/@replit+connectors-sdk@0.4.1/node_modules/@replit/connectors-sdk/identity.js
 var require_identity = __commonJS({
   "../../node_modules/.pnpm/@replit+connectors-sdk@0.4.1/node_modules/@replit/connectors-sdk/identity.js"(exports) {
@@ -45806,6 +45575,7 @@ __export(send_gate_exports, {
   getSuppression: () => getSuppression,
   handleProviderFailure: () => handleProviderFailure,
   hasChannelConsent: () => hasChannelConsent,
+  isWithinWindow: () => isWithinWindow,
   nextAllowedSendTime: () => nextAllowedSendTime,
   normalizeAddress: () => normalizeAddress,
   normalizeEmail: () => normalizeEmail,
@@ -46082,6 +45852,245 @@ var init_send_gate = __esm({
   }
 });
 
+// src/services/playbook-learning.ts
+function stepVariants(step) {
+  const base = {
+    key: "default",
+    prompt: step.prompt,
+    subject: step.subject
+  };
+  const extras = (step.variants ?? []).map((v) => ({
+    key: v.key,
+    prompt: v.prompt,
+    subject: v.subject ?? step.subject
+  }));
+  return [base, ...extras];
+}
+async function variantStats(organizationId, playbookId, stepIndex) {
+  const rows = await db.select({
+    key: playbookTouchesTable.variantKey,
+    sent: sql`count(*)::int`,
+    replied: sql`count(${playbookTouchesTable.repliedAt})::int`,
+    booked: sql`count(${playbookTouchesTable.bookedAt})::int`
+  }).from(playbookTouchesTable).where(
+    and(
+      eq(playbookTouchesTable.organizationId, organizationId),
+      eq(playbookTouchesTable.playbookId, playbookId),
+      eq(playbookTouchesTable.stepIndex, stepIndex)
+    )
+  ).groupBy(playbookTouchesTable.variantKey);
+  return new Map(rows.map((r) => [r.key, r]));
+}
+function sampleBeta(successes, failures) {
+  const a = successes + 1;
+  const b = failures + 1;
+  const mean = a / (a + b);
+  const variance = a * b / ((a + b) ** 2 * (a + b + 1));
+  const u1 = Math.random() || 1e-9;
+  const u2 = Math.random();
+  const z2 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return Math.min(1, Math.max(0, mean + z2 * Math.sqrt(variance)));
+}
+async function logDecision(entry) {
+  await db.insert(playbookDecisionsTable).values(entry);
+}
+async function chooseVariant(organizationId, playbook, stepIndex, step) {
+  const variants = stepVariants(step);
+  if (variants.length === 1) return variants[0];
+  if (step.pinnedVariant) {
+    const pinned = variants.find((v) => v.key === step.pinnedVariant);
+    if (pinned) return pinned;
+  }
+  const stats = await variantStats(organizationId, playbook.id, stepIndex);
+  const get = (key) => stats.get(key) ?? { key, sent: 0, replied: 0, booked: 0 };
+  const underSampled = variants.filter(
+    (v) => get(v.key).sent < MIN_VARIANT_SAMPLE
+  );
+  if (underSampled.length > 0) {
+    underSampled.sort((a, b) => get(a.key).sent - get(b.key).sent);
+    return underSampled[0];
+  }
+  let best = variants[0];
+  let bestScore = -1;
+  const scores = {};
+  for (const v of variants) {
+    const s = get(v.key);
+    const successes = s.replied + s.booked;
+    const score = sampleBeta(successes, Math.max(0, s.sent - successes));
+    scores[v.key] = Number(score.toFixed(4));
+    if (score > bestScore) {
+      bestScore = score;
+      best = v;
+    }
+  }
+  const bestStats = get(best.key);
+  const rate = (s) => s.sent > 0 ? (s.replied + s.booked) / s.sent : 0;
+  const others = variants.filter((v) => v.key !== best.key).map((v) => get(v.key));
+  const bestOtherRate = Math.max(...others.map(rate), 0);
+  const lift = bestOtherRate > 0 ? (rate(bestStats) / bestOtherRate).toFixed(1) : "\u221E";
+  await logDecision({
+    organizationId,
+    playbookId: playbook.id,
+    kind: "variant_allocation",
+    stepIndex,
+    decision: {
+      chosen: best.key,
+      scores,
+      samples: Object.fromEntries(
+        variants.map((v) => [v.key, get(v.key)])
+      )
+    },
+    explanation: `Step ${stepIndex + 1}: chose variant "${best.key}" \u2014 ${(rate(bestStats) * 100).toFixed(0)}% reply+booking rate over ${bestStats.sent} sends (${lift}x vs next best).`
+  });
+  return best;
+}
+async function adjustSendTime(organizationId, runAt, sendingHours) {
+  const rows = await db.select({
+    hour: playbookTouchesTable.sentHourUtc,
+    sent: sql`count(*)::int`,
+    replied: sql`count(${playbookTouchesTable.repliedAt})::int`
+  }).from(playbookTouchesTable).where(eq(playbookTouchesTable.organizationId, organizationId)).groupBy(playbookTouchesTable.sentHourUtc);
+  const totalReplies = rows.reduce((n, r) => n + r.replied, 0);
+  if (totalReplies < MIN_WINDOW_SAMPLE) return { runAt, adjusted: false };
+  const cfg = sendingHours ?? await getSendingHours(organizationId);
+  const eligible = rows.filter((r) => r.sent >= MIN_VARIANT_SAMPLE).filter((r) => {
+    if (!cfg.quietHoursEnabled) return true;
+    const shift2 = (r.hour - runAt.getUTCHours() + 24) % 24;
+    if (shift2 > MAX_WINDOW_SHIFT_HOURS) return false;
+    return isWithinWindow(cfg, new Date(runAt.getTime() + shift2 * 36e5));
+  });
+  if (eligible.length < 2) return { runAt, adjusted: false };
+  const best = eligible.reduce(
+    (a, b) => b.replied / b.sent > a.replied / a.sent ? b : a
+  );
+  const scheduledHour = runAt.getUTCHours();
+  if (best.hour === scheduledHour) return { runAt, adjusted: false };
+  const shift = (best.hour - scheduledHour + 24) % 24;
+  if (shift === 0 || shift > MAX_WINDOW_SHIFT_HOURS) {
+    return { runAt, adjusted: false };
+  }
+  const adjusted = new Date(runAt.getTime() + shift * 36e5);
+  await logDecision({
+    organizationId,
+    kind: "send_window",
+    decision: {
+      fromHourUtc: scheduledHour,
+      toHourUtc: best.hour,
+      shiftHours: shift,
+      bestHourReplyRate: Number((best.replied / best.sent).toFixed(3))
+    },
+    explanation: `Shifted a follow-up from ${scheduledHour}:00 to ${best.hour}:00 UTC \u2014 that window replies at ${(best.replied / best.sent * 100).toFixed(0)}% over ${best.sent} sends.`
+  });
+  return { runAt: adjusted, adjusted: true };
+}
+async function recordTouch(entry) {
+  const now = /* @__PURE__ */ new Date();
+  await db.insert(playbookTouchesTable).values({
+    ...entry,
+    sentHourUtc: now.getUTCHours(),
+    sentAt: now
+  });
+}
+async function recordLeadOutcome(organizationId, leadId, outcome) {
+  try {
+    const scope = and(
+      eq(playbookTouchesTable.organizationId, organizationId),
+      eq(playbookTouchesTable.leadId, leadId)
+    );
+    const now = /* @__PURE__ */ new Date();
+    if (outcome === "replied") {
+      await db.update(playbookTouchesTable).set({ repliedAt: now }).where(and(scope, isNull(playbookTouchesTable.repliedAt)));
+    } else if (outcome === "booked") {
+      await db.update(playbookTouchesTable).set({ bookedAt: now }).where(and(scope, isNull(playbookTouchesTable.bookedAt)));
+    } else {
+      await db.update(playbookTouchesTable).set({ finalOutcome: outcome, finalOutcomeAt: now }).where(and(scope, isNull(playbookTouchesTable.finalOutcome)));
+    }
+  } catch (err) {
+    console.error("[playbook-learning] outcome attribution failed:", err);
+  }
+}
+async function getConversionInsights(organizationId) {
+  const funnel = await db.select({
+    playbookId: playbookTouchesTable.playbookId,
+    playbookName: playbooksTable.name,
+    stepIndex: playbookTouchesTable.stepIndex,
+    variantKey: playbookTouchesTable.variantKey,
+    channel: playbookTouchesTable.channel,
+    sent: sql`count(*)::int`,
+    replied: sql`count(${playbookTouchesTable.repliedAt})::int`,
+    booked: sql`count(${playbookTouchesTable.bookedAt})::int`,
+    won: sql`count(*) filter (where ${playbookTouchesTable.finalOutcome} = 'won')::int`,
+    lost: sql`count(*) filter (where ${playbookTouchesTable.finalOutcome} = 'lost')::int`
+  }).from(playbookTouchesTable).innerJoin(
+    playbooksTable,
+    eq(playbookTouchesTable.playbookId, playbooksTable.id)
+  ).where(eq(playbookTouchesTable.organizationId, organizationId)).groupBy(
+    playbookTouchesTable.playbookId,
+    playbooksTable.name,
+    playbookTouchesTable.stepIndex,
+    playbookTouchesTable.variantKey,
+    playbookTouchesTable.channel
+  ).orderBy(
+    playbooksTable.name,
+    playbookTouchesTable.stepIndex,
+    playbookTouchesTable.variantKey
+  );
+  const decisionRows = await db.select({
+    kind: playbookDecisionsTable.kind,
+    stepIndex: playbookDecisionsTable.stepIndex,
+    explanation: playbookDecisionsTable.explanation,
+    createdAt: playbookDecisionsTable.createdAt
+  }).from(playbookDecisionsTable).where(eq(playbookDecisionsTable.organizationId, organizationId)).orderBy(desc(playbookDecisionsTable.createdAt)).limit(50);
+  const totalSent = funnel.reduce((n, r) => n + r.sent, 0);
+  const totalReplied = funnel.reduce((n, r) => n + r.replied, 0);
+  const baselineReplyRate = totalSent > 0 ? totalReplied / totalSent : 0;
+  const groups = /* @__PURE__ */ new Map();
+  for (const row of funnel) {
+    const key = `${row.playbookId}:${row.stepIndex}`;
+    const list = groups.get(key) ?? [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  let engineNumerator = 0;
+  let engineDenominator = 0;
+  for (const rows of groups.values()) {
+    const groupSent = rows.reduce((n, r) => n + r.sent, 0);
+    const qualified = rows.filter((r) => r.sent >= MIN_VARIANT_SAMPLE);
+    const pool2 = qualified.length > 0 ? qualified : rows;
+    const best = pool2.reduce(
+      (a, b) => b.replied / b.sent > a.replied / a.sent ? b : a
+    );
+    engineNumerator += best.replied / best.sent * groupSent;
+    engineDenominator += groupSent;
+  }
+  const engineReplyRate = engineDenominator > 0 ? engineNumerator / engineDenominator : 0;
+  const liftPercent = baselineReplyRate > 0 ? Math.round((engineReplyRate - baselineReplyRate) / baselineReplyRate * 100) : null;
+  return {
+    funnel,
+    decisions: decisionRows.map((d) => ({
+      ...d,
+      createdAt: d.createdAt.toISOString()
+    })),
+    baselineReplyRate: Number(baselineReplyRate.toFixed(4)),
+    engineReplyRate: Number(engineReplyRate.toFixed(4)),
+    liftPercent,
+    totalTouches: totalSent
+  };
+}
+var MIN_VARIANT_SAMPLE, MIN_WINDOW_SAMPLE, MAX_WINDOW_SHIFT_HOURS;
+var init_playbook_learning2 = __esm({
+  "src/services/playbook-learning.ts"() {
+    "use strict";
+    init_src();
+    init_drizzle_orm();
+    init_send_gate();
+    init_settings2();
+    MIN_VARIANT_SAMPLE = 10;
+    MIN_WINDOW_SAMPLE = 20;
+    MAX_WINDOW_SHIFT_HOURS = 12;
+  }
+});
+
 // src/services/playbooks.ts
 async function ensureDefaultPlaybook(organizationId) {
   await db.transaction(async (tx) => {
@@ -46151,7 +46160,9 @@ async function autoEnrollLead(organizationId, leadId) {
 async function enrollLead(organizationId, leadId, playbook) {
   const firstStep = playbook.steps[0];
   if (!firstStep) return null;
-  const runAt = new Date(Date.now() + firstStep.delayMinutes * 6e4);
+  let runAt = new Date(Date.now() + firstStep.delayMinutes * 6e4);
+  const sendingHours = await getSendingHours(organizationId);
+  runAt = nextAllowedSendTime(sendingHours, runAt) ?? runAt;
   try {
     const [enrollment] = await db.insert(playbookEnrollmentsTable).values({
       organizationId,
@@ -46241,11 +46252,13 @@ async function executePlaybookStep(organizationId, params) {
     await finishEnrollment(enrollment.id, "stopped", "contact missing");
     return { status: "skipped", detail: "contact missing" };
   }
+  const sendingHours = await getSendingHours(organizationId);
   const gate = await checkSendEligibility({
     organizationId,
     contact,
     channel: step.channel,
-    kind: "outreach"
+    kind: "outreach",
+    sendingHours
   });
   let gateSkipReason = null;
   if (!gate.ok) {
@@ -46296,9 +46309,15 @@ async function executePlaybookStep(organizationId, params) {
   }
   const nextStep = playbook.steps[stepIndex + 1];
   let nextRunAt = null;
+  let windowDeferred = false;
   if (nextStep) {
     const tentative = new Date(Date.now() + nextStep.delayMinutes * 6e4);
-    nextRunAt = (await adjustSendTime(organizationId, tentative)).runAt;
+    nextRunAt = (await adjustSendTime(organizationId, tentative, sendingHours)).runAt;
+    const clamped = nextAllowedSendTime(sendingHours, nextRunAt);
+    if (clamped) {
+      nextRunAt = clamped;
+      windowDeferred = true;
+    }
   }
   const claimed = await db.transaction(async (tx) => {
     const [row] = await tx.update(playbookEnrollmentsTable).set(
@@ -46332,6 +46351,15 @@ async function executePlaybookStep(organizationId, params) {
   });
   if (!claimed) {
     return { status: "skipped", detail: "step already claimed" };
+  }
+  if (windowDeferred && nextRunAt) {
+    await appendHistory(enrollment.id, {
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      kind: "deferred",
+      stepIndex: stepIndex + 1,
+      channel: nextStep?.channel,
+      detail: `outside sending window; scheduled for ${nextRunAt.toISOString()}`
+    });
   }
   let sendResult = null;
   let skipDetail = null;

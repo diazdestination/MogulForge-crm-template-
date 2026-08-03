@@ -104,6 +104,11 @@ export default function Pipeline() {
     const p = new URLSearchParams(rawSearch);
     return p.get('nationwide') === '1';
   });
+  // '' = all owners, 'me' = current user, otherwise a specific user id.
+  const [ownerFilter, setOwnerFilter] = useState<string>(() => {
+    const p = new URLSearchParams(rawSearch);
+    return p.get('owner') ?? '';
+  });
 
   // Sync filter state → URL (replace so filters don't pollute history).
   // Use replaceState directly so wouter's useSearch() subscription is NOT
@@ -115,10 +120,11 @@ export default function Pipeline() {
     if (search) p.set('search', search);
     if (needsReplyFilter) p.set('needsReply', '1');
     if (nationwideOnly) p.set('nationwide', '1');
+    if (ownerFilter) p.set('owner', ownerFilter);
     const qs = p.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, search, needsReplyFilter, nationwideOnly]);
+  }, [statusFilter, search, needsReplyFilter, nationwideOnly, ownerFilter]);
 
   // Sync URL → state for back/forward navigation
   useEffect(() => {
@@ -131,15 +137,19 @@ export default function Pipeline() {
     setSearch(urlSearch);
     setNeedsReplyFilter(urlNeedsReply);
     setNationwideOnly(urlNationwide);
+    setOwnerFilter(p.get('owner') ?? '');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawSearch]);
 
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
+  const { data: me } = useGetMe();
+  const ownerUserId = ownerFilter === 'me' ? me?.id : ownerFilter || undefined;
   const leadParams: ListLeadsParams = {
     ...(statusFilter ? { status: statusFilter } : {}),
     ...(nationwideOnly ? { source: 'nationwide-inquiry' } : {}),
     ...(debouncedSearch ? { search: debouncedSearch } : {}),
     ...(needsReplyFilter ? { hasUnreadPortalMessage: true } : {}),
+    ...(ownerUserId ? { assignedUserId: ownerUserId } : {}),
   };
   const { data: leads, isLoading, dataUpdatedAt } = useListLeads(leadParams);
 
@@ -191,7 +201,6 @@ export default function Pipeline() {
   const createSavedFilter = useCreateSavedFilter();
   const deleteSavedFilter = useDeleteSavedFilter();
   const queryClient = useQueryClient();
-  const { data: me } = useGetMe();
   const canEdit = canWrite(me?.role);
   const { toast } = useToast();
 
@@ -303,7 +312,7 @@ export default function Pipeline() {
     const name = filterName.trim();
     if (!name) return;
     createSavedFilter.mutate(
-      { data: { name, filters: { status: statusFilter ?? null, search: search || null, needsReply: needsReplyFilter || null, nationwideOnly: nationwideOnly || null } } },
+      { data: { name, filters: { status: statusFilter ?? null, search: search || null, needsReply: needsReplyFilter || null, nationwideOnly: nationwideOnly || null, owner: ownerFilter || null } } },
       {
         onSuccess: () => {
           toast({ title: 'Filter saved', description: `"${name}" will be here next time you sign in.` });
@@ -311,7 +320,7 @@ export default function Pipeline() {
           setSavePopoverOpen(false);
           queryClient.invalidateQueries({ queryKey: getListSavedFiltersQueryKey() });
         },
-        onError: () => showSaveFilterFailedToast({ name, filters: { status: statusFilter ?? null, search: search || null, needsReply: needsReplyFilter || null, nationwideOnly: nationwideOnly || null } }, queryClient),
+        onError: () => showSaveFilterFailedToast({ name, filters: { status: statusFilter ?? null, search: search || null, needsReply: needsReplyFilter || null, nationwideOnly: nationwideOnly || null, owner: ownerFilter || null } }, queryClient),
       },
     );
   };
@@ -321,6 +330,7 @@ export default function Pipeline() {
     setSearch(typeof filters.search === 'string' ? filters.search : '');
     setNeedsReplyFilter(filters.needsReply === true);
     setNationwideOnly(filters.nationwideOnly === true);
+    setOwnerFilter(typeof filters.owner === 'string' ? filters.owner : '');
   };
 
   const removeSavedFilter = (id: string, name: string) => {
@@ -454,6 +464,20 @@ export default function Pipeline() {
               <option value="">All stages</option>
               {PIPELINE_STAGES.map(s => (
                 <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+
+            <select
+              data-testid="owner-filter"
+              value={ownerFilter}
+              onChange={e => setOwnerFilter(e.target.value)}
+              aria-label="Filter by owner"
+              className="text-sm bg-background border border-border rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-primary max-w-[160px] shadow-sm"
+            >
+              <option value="">All owners</option>
+              <option value="me">Mine</option>
+              {(users || []).filter(u => u.id !== me?.id).map(u => (
+                <option key={u.id} value={u.id}>{`${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email}</option>
               ))}
             </select>
 
