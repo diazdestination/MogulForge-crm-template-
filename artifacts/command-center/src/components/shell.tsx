@@ -2,7 +2,7 @@ import { type LucideIcon } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@workspace/replit-auth-web';
-import { useGetMe, UserRole } from '@workspace/api-client-react';
+import { useGetMe, useGetOnboarding, getGetOnboardingQueryKey, UserRole } from '@workspace/api-client-react';
 import {
   LayoutDashboard,
   Trello,
@@ -21,7 +21,9 @@ import {
   X,
   Sparkles,
   TrendingUp,
-  RotateCcw
+  BadgeDollarSign,
+  RotateCcw,
+  Webhook
 } from 'lucide-react';
 import { canManageSettings, canViewAuditLog } from '@/lib/permissions';
 import { CLIENT } from '@/lib/client.config';
@@ -40,6 +42,7 @@ const navItems: NavItem[] = [
   { title: 'Assistant', href: '/assistant', icon: Sparkles },
   { title: 'Pipeline', href: '/pipeline', icon: Trello },
   { title: 'Insights', href: '/insights', icon: TrendingUp },
+  { title: 'ROI Report', href: '/reports', icon: BadgeDollarSign },
   { title: 'Contacts', href: '/contacts', icon: Users },
   { title: 'Properties', href: '/properties', icon: Home },
   { title: 'Estimates', href: '/estimates', icon: FileText },
@@ -47,10 +50,17 @@ const navItems: NavItem[] = [
   { title: 'Tasks', href: '/tasks', icon: CheckSquare },
   { title: 'Appointments', href: '/appointments', icon: Calendar },
   { title: 'Win-back', href: '/reactivation', icon: RotateCcw },
+  { title: 'Lead Capture', href: '/capture', icon: Webhook },
   { title: 'Forms', href: '/forms', icon: ClipboardList, requireSettings: true },
   { title: 'Audit Log', href: '/audit', icon: Shield, requireAudit: true },
   { title: 'Settings', href: '/settings', icon: Settings2, requireSettings: true },
 ];
+
+/** Org display name from live org config, with build-time fallback. */
+function useBrandName(): string {
+  const { data: profile } = useGetMe();
+  return profile?.organization?.name || CLIENT.businessShortName;
+}
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -64,8 +74,26 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [location]);
 
   const role = profile?.role as UserRole | undefined;
+  const brandName = useBrandName();
+  const brandInitial = brandName.charAt(0).toUpperCase();
 
-  const visibleItems = navItems.filter((item) => {
+  // Surface the guided setup wizard until the org launches or dismisses it.
+  const canSetup = canManageSettings(role);
+  const { data: onboarding } = useGetOnboarding({
+    query: { queryKey: getGetOnboardingQueryKey(), enabled: canSetup, staleTime: 60_000 },
+  });
+  const showSetup =
+    canSetup &&
+    !!onboarding?.state &&
+    !onboarding.state.completedAt &&
+    !onboarding.state.dismissedAt;
+
+  const visibleItems = [
+    ...(showSetup
+      ? [{ title: 'Setup', href: '/onboarding', icon: Sparkles } as NavItem]
+      : []),
+    ...navItems,
+  ].filter((item) => {
     if (item.requireAudit && !canViewAuditLog(role)) {
       return false;
     }
@@ -90,10 +118,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="h-16 flex items-center px-6 border-b border-sidebar-border shrink-0">
           <div className="flex items-center gap-3 text-sidebar-foreground">
             <div className="w-8 h-8 rounded bg-sidebar-primary flex items-center justify-center font-bold text-sidebar-primary-foreground shadow-sm shadow-sidebar-primary/20">
-              {CLIENT.businessShortName.charAt(0)}
+              {brandInitial}
             </div>
             <div>
-              <div className="font-bold text-sm tracking-tight leading-none">{CLIENT.businessShortName}</div>
+              <div className="font-bold text-sm tracking-tight leading-none">{brandName}</div>
               <div className="text-[10px] text-sidebar-foreground/70 uppercase tracking-widest font-mono mt-1">
                 Command Center
               </div>
@@ -150,9 +178,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <div className="md:hidden h-14 flex items-center justify-between px-4 border-b border-border bg-card shrink-0 sticky top-0 z-30">
         <div className="flex items-center gap-2 text-foreground">
           <div className="w-7 h-7 rounded bg-primary flex items-center justify-center font-bold text-primary-foreground shadow-sm shadow-primary/20 text-xs">
-            {CLIENT.businessShortName.charAt(0)}
+            {brandInitial}
           </div>
-          <div className="font-bold text-sm tracking-tight leading-none">{CLIENT.businessShortName}</div>
+          <div className="font-bold text-sm tracking-tight leading-none">{brandName}</div>
         </div>
         {profile && (
            <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest bg-muted px-2 py-1 rounded-md">
@@ -201,10 +229,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between p-4 border-b border-border bg-card">
             <div className="flex items-center gap-3">
                <div className="w-8 h-8 rounded bg-primary flex items-center justify-center font-bold text-primary-foreground shadow-sm shadow-primary/20 text-sm">
-                {CLIENT.businessShortName.charAt(0)}
+                {brandInitial}
               </div>
               <div>
-                <div className="font-bold text-sm tracking-tight leading-none text-foreground">{CLIENT.appName}</div>
+                <div className="font-bold text-sm tracking-tight leading-none text-foreground">{brandName}</div>
                 {profile && <div className="text-[10px] text-muted-foreground font-mono mt-1">{profile.organization?.name}</div>}
               </div>
             </div>

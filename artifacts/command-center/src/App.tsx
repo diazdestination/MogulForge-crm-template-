@@ -7,12 +7,14 @@ import { useAuth } from '@workspace/replit-auth-web';
 import { Shell } from '@/components/shell';
 import { AccessGate } from '@/components/access-gate';
 import { Loader2 } from 'lucide-react';
+import { CLIENT } from '@/lib/client.config';
 
 // Pages
 import Dashboard from '@/pages/dashboard';
 import Assistant from '@/pages/assistant';
 import Pipeline from '@/pages/pipeline';
 import Insights from '@/pages/insights';
+import Reports from '@/pages/reports';
 import LeadDetail from '@/pages/lead-detail';
 import Contacts from '@/pages/contacts';
 import Properties from '@/pages/properties';
@@ -24,6 +26,11 @@ import AuditLog from '@/pages/audit';
 import Settings from '@/pages/settings';
 import Forms from '@/pages/forms';
 import Reactivation from '@/pages/reactivation';
+import Capture from '@/pages/capture';
+import Onboarding from '@/pages/onboarding';
+import Platform from '@/pages/platform';
+import { CreateOrgScreen } from '@/components/create-org';
+import { useGetSession, getGetSessionQueryKey } from '@workspace/api-client-react';
 
 const queryClient = new QueryClient();
 
@@ -36,9 +43,9 @@ function LoginScreen() {
         <div className="w-16 h-16 bg-primary rounded-xl flex items-center justify-center text-primary-foreground text-3xl font-bold mb-8 shadow-xl shadow-primary/20">
           P
         </div>
-        <h1 className="text-3xl font-bold tracking-tight mb-2 text-center">Painless Command Center</h1>
+        <h1 className="text-3xl font-bold tracking-tight mb-2 text-center">{CLIENT.appName}</h1>
         <p className="text-muted-foreground text-center mb-10 text-sm">
-          Mission control for roofing & water restoration sales. Secure access required.
+          Mission control for your sales pipeline. Secure access required.
         </p>
         
         <button 
@@ -73,6 +80,28 @@ function Router() {
     return <LoginScreen />;
   }
 
+  return <AuthedApp />;
+}
+
+function AuthedApp() {
+  // Session probe works BEFORE the user belongs to an org: users without an
+  // organization see the create-company screen instead of the app shell.
+  const { data: session, isLoading: sessionLoading } = useGetSession({
+    query: { queryKey: getGetSessionQueryKey(), retry: 1 },
+  });
+
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (session && !session.organization) {
+    return <CreateOrgScreen />;
+  }
+
   return (
     <AccessGate>
       <Shell>
@@ -81,6 +110,7 @@ function Router() {
         <Route path="/assistant" component={Assistant} />
         <Route path="/pipeline" component={Pipeline} />
         <Route path="/insights" component={Insights} />
+        <Route path="/reports" component={Reports} />
         <Route path="/leads/:id" component={LeadDetail} />
         <Route path="/contacts" component={Contacts} />
         <Route path="/properties" component={Properties} />
@@ -92,6 +122,9 @@ function Router() {
         <Route path="/settings" component={Settings} />
         <Route path="/forms" component={Forms} />
         <Route path="/reactivation" component={Reactivation} />
+        <Route path="/capture" component={Capture} />
+        <Route path="/onboarding" component={Onboarding} />
+        <Route path="/platform" component={Platform} />
           <Route component={NotFound} />
         </Switch>
       </Shell>

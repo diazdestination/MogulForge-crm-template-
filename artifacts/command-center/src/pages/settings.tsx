@@ -3115,8 +3115,15 @@ function PlaybookEditor({ playbook, onDone }: { playbook: Playbook | null; onDon
           ? s.variants.map((v) => ({ key: v.key, prompt: v.prompt, subject: v.subject || undefined }))
           : undefined,
         pinnedVariant: s.pinnedVariant || undefined,
+        // Post-sale steps carry a tracked review/referral link — preserve it.
+        linkKind: s.linkKind || undefined,
       })),
-      enrollmentRules: { minScore: minScore === '' ? null : Number(minScore) },
+      // Spread the existing rules so post-sale milestone gating (and any
+      // future rule fields) survive an edit that only touches minScore.
+      enrollmentRules: {
+        ...(playbook?.enrollmentRules ?? {}),
+        minScore: minScore === '' ? null : Number(minScore),
+      },
     };
     if (!body.name || body.steps.some((s) => !s.prompt.trim())) {
       toast({ title: 'Give the playbook a name and every step a message direction.', variant: 'destructive' });

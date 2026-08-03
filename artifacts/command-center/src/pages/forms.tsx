@@ -521,14 +521,14 @@ function FormEditorDialog(props: {
                         <Label>Options — one per line: value | label | urgency (optional)</Label>
                         <Textarea rows={3} value={field.optionsText} data-testid={`input-field-options-${i}-${j}`}
                           onChange={(e) => patchField(i, j, { optionsText: e.target.value })}
-                          placeholder={'storm | Storm damage | high\nreplacement | Roof replacement'} />
+                          placeholder={'urgent | Urgent issue | high\nquote | Request a quote'} />
                       </div>
                     )}
                     <div>
                       <Label>Scoring rules — one per line: points | reason | matching answer (optional)</Label>
                       <Textarea rows={2} value={field.scoringText}
                         onChange={(e) => patchField(i, j, { scoringText: e.target.value })}
-                        placeholder={'30 | Storm damage reported | storm'} />
+                        placeholder={'30 | Urgent issue reported | urgent'} />
                     </div>
                   </div>
                 ))}

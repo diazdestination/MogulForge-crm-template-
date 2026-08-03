@@ -936,7 +936,7 @@ function PortalReplyBox({ leadId }: { leadId: string; activityId: string }) {
         id: leadId,
         data: {
           type: 'team_message',
-          title: 'Reply from your roofing team',
+          title: 'Reply from the team',
           body: trimmed,
           metadata: { source: 'crm-portal-reply' },
         },
@@ -1133,7 +1133,7 @@ function MessageComposer({ leadId }: { leadId: string }) {
         id: leadId,
         data: {
           type: 'team_message',
-          title: 'Reply from your roofing team',
+          title: 'Reply from the team',
           body: trimmed,
           metadata: { source: 'crm-messages-thread' },
         },

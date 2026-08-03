@@ -27,6 +27,8 @@ import AuditLog from '@/pages/audit';
 import Settings from '@/pages/settings';
 import FormsPage from '@/pages/forms';
 import Reactivation from '@/pages/reactivation';
+import Capture from '@/pages/capture';
+import Reports from '@/pages/reports';
 import LeadDetail from '@/pages/lead-detail';
 import { sampleContact, sampleLead } from '@/test/mock-api';
 import { mockApi } from '@/test/mock-api';
@@ -153,6 +155,29 @@ describe('every icon-only control keeps an accessible name', () => {
       openModal: /new form/i, modalHeading: 'New form',
     },
     { name: 'reactivation', path: '/reactivation', Page: Reactivation },
+    { name: 'capture', path: '/capture', Page: Capture },
+    {
+      name: 'reports', path: '/reports', Page: Reports,
+      handler: (_method: string, path: string) => {
+        if (path.includes('/reports/roi')) {
+          return new Response(
+            JSON.stringify({
+              windowDays: 30,
+              generatedAt: new Date().toISOString(),
+              leads: { total: 1, qualified: 1, bySource: [], byCampaign: [], byTool: [], byLandingPage: [], byServiceType: [] },
+              appointments: { total: 0, leadsWithAppointment: 0, appointmentRatePct: null },
+              responsiveness: { leadsContacted: 0, leadsReplied: 0, responseRatePct: null, medianMinutesToFirstTouch: null },
+              playbooks: [],
+              reviewsAndReferrals: { reviewRequestsSent: 0, reviewLinkClicks: 0, referralRequestsSent: 0, referralSubmissions: 0, referralLeads: 0 },
+              reactivation: { campaignsLaunched: 0, leadsEnrolled: 0, leadsReplied: 0 },
+              outcomes: { won: 0, revenueWonCents: 0, revenueByAttribution: [], pipelineValueCents: 0, lost: 0, lostReasons: [] },
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return undefined;
+      },
+    },
   ];
 
   const json = (body: unknown) =>
