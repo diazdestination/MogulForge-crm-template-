@@ -1,6 +1,11 @@
 import { useMemo } from 'react';
-import { useGetPlaybookInsights, type InsightsFunnelRow } from '@workspace/api-client-react';
-import { Loader2, TrendingUp, Brain, Clock, Pin } from 'lucide-react';
+import {
+  useGetPlaybookInsights,
+  useGetCopilotPerformance,
+  type InsightsFunnelRow,
+  type CopilotPerformance,
+} from '@workspace/api-client-react';
+import { Loader2, TrendingUp, Brain, Clock, Pin, Sparkles } from 'lucide-react';
 
 /**
  * Conversion Insights — the Closer Engine's learning loop, made visible.
@@ -10,6 +15,7 @@ import { Loader2, TrendingUp, Brain, Clock, Pin } from 'lucide-react';
  */
 export default function Insights() {
   const { data, isLoading } = useGetPlaybookInsights();
+  const { data: copilot, isLoading: copilotLoading } = useGetCopilotPerformance();
 
   const grouped = useMemo(() => {
     const map = new Map<string, { name: string; rows: InsightsFunnelRow[] }>();
@@ -32,11 +38,11 @@ export default function Insights() {
         </p>
       </header>
 
-      {isLoading ? (
+      {isLoading || copilotLoading ? (
         <div className="flex-1 flex items-center justify-center py-24">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
-      ) : !data || data.totalTouches === 0 ? (
+      ) : (!data || data.totalTouches === 0) && (!copilot || copilot.totalFeedback === 0) ? (
         <div className="flex-1 flex flex-col items-center justify-center py-24 px-6 text-center">
           <Brain className="w-10 h-10 text-muted-foreground/50 mb-3" />
           <h2 className="font-semibold text-foreground">No outreach data yet</h2>
@@ -44,6 +50,10 @@ export default function Insights() {
             Once playbook touches start going out, the engine tracks every reply, booking, and
             win back to the message that drove it — and this page fills in.
           </p>
+        </div>
+      ) : !data || data.totalTouches === 0 ? (
+        <div className="p-4 md:p-6 space-y-6 max-w-5xl">
+          {copilot && copilot.totalFeedback > 0 && <CopilotPerformanceSection copilot={copilot} />}
         </div>
       ) : (
         <div className="p-4 md:p-6 space-y-6 max-w-5xl">
@@ -103,6 +113,9 @@ export default function Insights() {
             </section>
           ))}
 
+          {/* Copilot performance */}
+          {copilot && copilot.totalFeedback > 0 && <CopilotPerformanceSection copilot={copilot} />}
+
           {/* Decision log */}
           <section className="bg-card border border-border rounded-xl shadow-sm">
             <div className="px-4 py-3 border-b border-border flex items-center gap-2">
@@ -136,6 +149,84 @@ export default function Insights() {
         </div>
       )}
     </div>
+  );
+}
+
+const ACTION_TYPE_LABELS: Record<string, string> = {
+  reply_portal_message: 'Reply to portal message',
+  call_now: 'Call now',
+  send_message: 'Send a check-in',
+  follow_up_estimate: 'Follow up on estimate',
+  schedule_follow_up: 'Schedule a follow-up',
+};
+
+function CopilotPerformanceSection({ copilot }: { copilot: CopilotPerformance }) {
+  const pct = (num: number, den: number) => (den > 0 ? `${Math.round((num / den) * 100)}%` : '—');
+  const { conversion } = copilot;
+  return (
+    <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden" data-testid="copilot-performance">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+        <Sparkles className="w-4 h-4 text-primary" />
+        <h2 className="font-semibold text-sm text-foreground">Copilot performance</h2>
+        <span className="text-xs text-muted-foreground ml-auto">
+          how reps respond to suggestions — and whether acting on them wins jobs
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-border">
+              <th className="px-4 py-2 font-semibold">Suggestion</th>
+              <th className="px-2 py-2 font-semibold text-right">Sent</th>
+              <th className="px-2 py-2 font-semibold text-right">Edited</th>
+              <th className="px-2 py-2 font-semibold text-right">Snoozed</th>
+              <th className="px-2 py-2 font-semibold text-right">Dismissed</th>
+              <th className="px-4 py-2 font-semibold text-right">Acceptance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {copilot.byActionType.map(row => (
+              <tr key={row.actionType} className="border-b border-border/50 last:border-0">
+                <td className="px-4 py-2 font-medium">
+                  {ACTION_TYPE_LABELS[row.actionType] ?? row.actionType.replace(/_/g, ' ')}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">{row.sent}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{row.edited}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{row.snoozed}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{row.dismissed}</td>
+                <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                  {pct(row.sent + row.edited, row.total)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-4 py-3 border-t border-border grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+            Acted-on leads won
+          </div>
+          <div className="text-xl font-bold tabular-nums text-foreground mt-0.5" data-testid="acted-won-rate">
+            {pct(conversion.actedWon, conversion.actedLeads)}
+            <span className="text-xs font-normal text-muted-foreground ml-2">
+              {conversion.actedWon} of {conversion.actedLeads} lead{conversion.actedLeads === 1 ? '' : 's'}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+            Dismissed-only leads won
+          </div>
+          <div className="text-xl font-bold tabular-nums text-foreground mt-0.5" data-testid="dismissed-won-rate">
+            {pct(conversion.dismissedWon, conversion.dismissedLeads)}
+            <span className="text-xs font-normal text-muted-foreground ml-2">
+              {conversion.dismissedWon} of {conversion.dismissedLeads} lead{conversion.dismissedLeads === 1 ? '' : 's'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
