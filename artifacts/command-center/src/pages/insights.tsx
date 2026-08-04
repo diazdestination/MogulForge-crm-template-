@@ -84,6 +84,8 @@ export default function Insights() {
                       <th className="px-2 py-2 font-semibold">Variant</th>
                       <th className="px-2 py-2 font-semibold">Channel</th>
                       <th className="px-2 py-2 font-semibold text-right">Sent</th>
+                      <th className="px-2 py-2 font-semibold text-right">Bounced</th>
+                      <th className="px-2 py-2 font-semibold text-right">Opt-outs</th>
                       <th className="px-2 py-2 font-semibold text-right">Replied</th>
                       <th className="px-2 py-2 font-semibold text-right">Booked</th>
                       <th className="px-2 py-2 font-semibold text-right">Won</th>
@@ -101,6 +103,8 @@ export default function Insights() {
                         </td>
                         <td className="px-2 py-2 capitalize text-muted-foreground">{r.channel}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{r.sent}</td>
+                        <td className={`px-2 py-2 text-right tabular-nums ${r.bounced > 0 ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-muted-foreground'}`}>{r.bounced}</td>
+                        <td className={`px-2 py-2 text-right tabular-nums ${r.unsubscribed > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-muted-foreground'}`}>{r.unsubscribed}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{r.replied}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{r.booked}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{r.won}</td>
