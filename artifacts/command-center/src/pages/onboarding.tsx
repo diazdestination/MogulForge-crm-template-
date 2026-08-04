@@ -11,6 +11,8 @@ import {
   useGetOnboarding,
   useGetSettings,
   useUpdateOnboarding,
+  useInviteUser,
+  UserRole,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -29,6 +31,9 @@ import {
   Check,
   Loader2,
   ArrowRight,
+  Users,
+  Plus,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -54,6 +59,7 @@ const STEP_DEFS: StepDef[] = [
   { key: 'snippet', title: 'Install the snippet', description: 'Copy the capture snippet or connect your existing forms and outside systems.', icon: Code2, href: '/capture', linkLabel: 'Open lead capture' },
   { key: 'verify', title: 'Verify installation', description: 'Run the installation check to confirm your website is talking to the CRM.', icon: BadgeCheck, href: '/settings', linkLabel: 'Open settings' },
   { key: 'test-lead', title: 'Run a test lead', description: 'Create a sandboxed sample lead and watch the full journey — captured, scored, and enrolled in follow-up — without contacting anyone real.', icon: FlaskConical },
+  { key: 'invite-team', title: 'Invite your team', description: 'Add the reps, managers, and admins who will work leads in this workspace. They\'ll get an email with a sign-in link.', icon: Users },
   { key: 'launch', title: 'Launch', description: 'Everything checks out — mark your workspace live.', icon: Rocket },
 ];
 
@@ -63,6 +69,9 @@ export default function Onboarding() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [testLeadResult, setTestLeadResult] = useState<{ leadId: string; score: number; enrolled: boolean } | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<string>(UserRole.sales_rep);
+  const [invitedEmails, setInvitedEmails] = useState<string[]>([]);
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getGetOnboardingQueryKey() });
@@ -96,6 +105,31 @@ export default function Onboarding() {
       },
       onError: () =>
         toast({ title: 'Could not remove test data', description: 'Please try again.', variant: 'destructive' }),
+    },
+  });
+
+  const sendInvite = useInviteUser({
+    mutation: {
+      onSuccess: (member) => {
+        const email = member.email ?? inviteEmail;
+        setInvitedEmails((prev) => [...prev, email]);
+        setInviteEmail('');
+        update.mutate({ data: { completeSteps: ['invite-team'] } });
+        toast({
+          title: 'Invite sent',
+          description: member.inviteEmail?.sent === false
+            ? `${email} was added but the invite email could not be delivered.`
+            : `${email} will receive a sign-in link shortly.`,
+        });
+      },
+      onError: (err: unknown) => {
+        const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+        toast({
+          title: 'Could not send invite',
+          description: msg ?? 'Please check the email address and try again.',
+          variant: 'destructive',
+        });
+      },
     },
   });
 
@@ -150,6 +184,7 @@ export default function Onboarding() {
           const isDone = completed.has(step.key);
           const Icon = step.icon;
           const isTestLead = step.key === 'test-lead';
+          const isInviteTeam = step.key === 'invite-team';
           const isLaunch = step.key === 'launch';
           return (
             <li
@@ -182,6 +217,79 @@ export default function Onboarding() {
                       View its timeline
                     </Link>{' '}
                     to see the journey, then clean it up below.
+                  </div>
+                )}
+                {isInviteTeam && (
+                  <div className="mt-3 space-y-3">
+                    {invitedEmails.length > 0 && (
+                      <ul className="space-y-1" data-testid="invited-emails-list">
+                        {invitedEmails.map((e) => (
+                          <li key={e} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Check className="w-3 h-3 text-primary shrink-0" />
+                            {e}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <form
+                      data-testid="invite-team-form"
+                      onSubmit={(ev) => {
+                        ev.preventDefault();
+                        if (!inviteEmail.trim()) return;
+                        sendInvite.mutate({ data: { email: inviteEmail.trim(), role: inviteRole as typeof UserRole[keyof typeof UserRole] } });
+                      }}
+                      className="flex flex-wrap items-end gap-2"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="invite-email" className="text-xs text-muted-foreground">Email</label>
+                        <input
+                          id="invite-email"
+                          type="email"
+                          required
+                          value={inviteEmail}
+                          onChange={(e) => setInviteEmail(e.target.value)}
+                          placeholder="teammate@example.com"
+                          data-testid="invite-email-input"
+                          className="h-8 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-1 focus:ring-ring w-52"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor="invite-role" className="text-xs text-muted-foreground">Role</label>
+                        <select
+                          id="invite-role"
+                          value={inviteRole}
+                          onChange={(e) => setInviteRole(e.target.value)}
+                          data-testid="invite-role-select"
+                          className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                        >
+                          <option value={UserRole.admin}>Admin</option>
+                          <option value={UserRole.sales_manager}>Sales manager</option>
+                          <option value={UserRole.sales_rep}>Sales rep</option>
+                          <option value={UserRole.inspector}>Inspector</option>
+                        </select>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={sendInvite.isPending || !inviteEmail.trim()}
+                        data-testid="send-invite-button"
+                        className="inline-flex items-center gap-1.5 h-8 text-xs font-semibold bg-primary text-primary-foreground rounded-md px-3 hover:bg-primary/90 disabled:opacity-50"
+                      >
+                        {sendInvite.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                        Invite
+                      </button>
+                    </form>
+                    <div className="flex items-center gap-2">
+                      {!isDone && (
+                        <button
+                          onClick={() => update.mutate({ data: { completeSteps: ['invite-team'] } })}
+                          disabled={update.isPending}
+                          data-testid="skip-invite-team"
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline"
+                        >
+                          <X className="w-3 h-3" /> Skip for now
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -232,7 +340,8 @@ export default function Onboarding() {
                     )
                   ) : (
                     !isDone &&
-                    !isTestLead && (
+                    !isTestLead &&
+                    !isInviteTeam && (
                       <button
                         onClick={() => update.mutate({ data: { completeSteps: [step.key], currentStep: step.key } })}
                         disabled={update.isPending}
