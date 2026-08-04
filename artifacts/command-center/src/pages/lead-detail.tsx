@@ -37,7 +37,7 @@ import {
   useSkipEnrollmentStep,
 } from '@workspace/api-client-react';
 import { Link } from 'wouter';
-import { Loader2, Bot, Calendar, Phone, Activity as ActivityIcon, CheckCircle2, User, Home, Zap, MessageSquare, MessageSquareText, Copy, FileText, HardHat, Plus, Pencil, ImageOff, Globe, Camera, X as XIcon, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
+import { Loader2, Bot, Calendar, Phone, Activity as ActivityIcon, CheckCircle2, User, Home, Zap, MessageSquare, MessageSquareText, Copy, FileText, HardHat, Plus, Pencil, ImageOff, Globe, Camera, X as XIcon, CheckCircle, AlertCircle, Trash2, Info } from 'lucide-react';
 import { canWrite } from '@/lib/permissions';
 import { useToast } from '@/hooks/use-toast';
 import { PhotoLightbox } from '@/components/photo-lightbox';
@@ -60,6 +60,7 @@ export default function LeadDetail() {
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'activity' | 'messages'>('activity');
+  const [sampleBannerDismissed, setSampleBannerDismissed] = useState(false);
 
   const duplicateMatches = (duplicateGroups || [])
     .filter(g => id && g.leadIds.includes(id))
@@ -97,8 +98,35 @@ export default function LeadDetail() {
   };
 
   return (
-    <div className="flex flex-col md:flex-row h-full bg-background overflow-hidden relative">
-      
+    <div className="flex flex-col h-full bg-background overflow-hidden relative">
+
+      {/* Sample lead onboarding banner — always full-width above the columns */}
+      {lead.sourceDetail === 'onboarding-test-lead' && !sampleBannerDismissed && (
+        <div className="w-full shrink-0 flex items-start gap-3 px-4 py-3 bg-primary/8 border-b border-primary/20 text-sm z-20">
+          <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <span className="font-bold text-foreground">This is your sample lead.</span>{' '}
+            <span className="text-muted-foreground">
+              It was created during setup so you can explore the timeline.{' '}
+              The <span className="font-semibold text-foreground">score</span> shows how the AI rates urgency and fit based on service type, damage description, and other signals.{' '}
+              The <span className="font-semibold text-foreground">playbook enrollment</span> (left panel) shows how automated follow-up steps would be scheduled — but no messages were actually sent to this contact.{' '}
+              Timeline entries marked <span className="font-mono text-[11px] font-bold text-foreground bg-muted px-1 py-0.5 rounded">[TEST]</span> are narration only.
+            </span>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss sample lead banner"
+            onClick={() => setSampleBannerDismissed(true)}
+            className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-primary/10 transition-colors"
+          >
+            <XIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Two-column body */}
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden relative">
+
       {/* Left Column - Details */}
       <div className="w-full md:w-1/3 md:min-w-[320px] md:max-w-[400px] border-b md:border-b-0 md:border-r border-border bg-card overflow-y-auto flex flex-col shrink-0">
         
@@ -297,6 +325,7 @@ export default function LeadDetail() {
         )}
       </div>
 
+      </div>{/* end two-column body */}
     </div>
   );
 }
