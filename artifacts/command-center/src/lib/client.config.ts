@@ -3,8 +3,12 @@
  * ║                CLIENT CONFIGURATION — REBRAND HERE           ║
  * ╚══════════════════════════════════════════════════════════════╝
  *
- * This is the ONLY file to edit when deploying this CRM for a new
- * client. After updating these values:
+ * Edit this file (and its API-server counterpart) when deploying for
+ * a new client. See README-template.md § "Rebranding" for the full
+ * checklist, including which values are shared with the API server
+ * and must be kept in sync.
+ *
+ * After updating these values:
  *   1. Replace public/favicon.ico and src/assets/logo.png with the
  *      new client's logo.
  *

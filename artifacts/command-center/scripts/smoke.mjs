@@ -109,6 +109,36 @@ async function main() {
       );
     }
     console.log(`[smoke] app shell OK (200 with #root and ${BASE_PATH}assets/ bundle)`);
+
+    // --- Branding checks ---
+    // 1. Ensure %CLIENT_APP_NAME% placeholder was fully replaced.
+    if (html.includes("%CLIENT_APP_NAME%")) {
+      throw new Error(
+        "Built index.html still contains the raw %CLIENT_APP_NAME% placeholder — clientBrandingPlugin did not run.",
+      );
+    }
+    // 2. Ensure the correct app name appears in the <title>.
+    const APP_NAME = "Painless Command Center";
+    if (!html.includes(`<title>${APP_NAME}</title>`)) {
+      throw new Error(
+        `Built index.html does not contain <title>${APP_NAME}</title> — title injection failed or appName changed.`,
+      );
+    }
+    // 3. Ensure the --primary HSL value from client.config.ts was injected.
+    const PRIMARY_HSL = "221 80% 35%";
+    if (!html.includes(`--primary: ${PRIMARY_HSL}`)) {
+      throw new Error(
+        `Built index.html does not contain "--primary: ${PRIMARY_HSL}" — CSS variable injection failed or primaryHsl changed.`,
+      );
+    }
+    // 4. Ensure the dark-mode --primary HSL value was also injected.
+    const PRIMARY_HSL_DARK = "221 80% 60%";
+    if (!html.includes(`--primary: ${PRIMARY_HSL_DARK}`)) {
+      throw new Error(
+        `Built index.html does not contain dark-mode "--primary: ${PRIMARY_HSL_DARK}" — CSS variable injection failed or primaryHslDark changed.`,
+      );
+    }
+    console.log(`[smoke] branding OK (title="${APP_NAME}", --primary=${PRIMARY_HSL}, dark --primary=${PRIMARY_HSL_DARK})`);
     console.log("[smoke] PASSED: command-center builds and serves the app shell at its real base path.");
   } finally {
     if (!exited) server.kill("SIGTERM");

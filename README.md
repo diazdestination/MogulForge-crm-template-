@@ -26,14 +26,30 @@ This moves the staged workflow file into `.github/workflows/` and pushes it. Aft
 
 ## Rebranding for a new client
 
-**Everything client-specific lives in two files. Edit them first.**
+**Everything client-specific lives in two config files. Edit both before your first deploy.**
 
-| File | What to change |
-|---|---|
-| `artifacts/command-center/src/lib/client.config.ts` | Business name, short name, app title, primary color (hex + HSL), phone, timezone |
-| `artifacts/api-server/src/lib/client.config.ts` | Default org name, org slug, fallback business name, AI assistant name, greeting |
+| File | Audience | What to change |
+|---|---|---|
+| `artifacts/command-center/src/lib/client.config.ts` | **Frontend** (browser bundle) | Business name, short name, app title, primary color (hex + HSL), phone, timezone |
+| `artifacts/api-server/src/lib/client.config.ts` | **Backend** (server process) | Default org name, org slug, fallback business name, AI assistant name, AI greeting |
 
-After editing those files:
+### Why two files?
+
+The frontend config is baked into the browser bundle at build time (Vite replaces references at compile time — values are never fetched from the server). The backend config is loaded by the Node.js process at startup and seeds the database on first boot. Merging them into one file would require shipping server-only secrets alongside client JS, or adding a runtime fetch step before the app renders — neither is worth the trade-off.
+
+### Values that must stay in sync
+
+A few values appear in both configs and need to match:
+
+| Value | Frontend key | Backend key |
+|---|---|---|
+| Business name | `businessName` | `defaultOrgName` |
+| Short business name | `businessShortName` | `businessShortName` |
+| Phone number | `phone` | `phone` |
+
+If these drift apart, the UI and outbound messages (email, SMS) will show different names — update both whenever you change one.
+
+### After editing those files
 
 1. **Logo** — replace `artifacts/command-center/public/favicon.ico` and any logo assets with the new client's logo.
 2. **Domain/origin** — set the `DOMAIN` environment variable (used by the API server to build portal links and OG cards).
